@@ -68,15 +68,19 @@
 
 ## 缓存说明
 
-缓存存放在扩展的 `chrome.storage.local` 里，键名是：
+缓存存放在扩展的 `chrome.storage.local` 里，**现在是分片存储**，不是把所有内容都塞进一个大对象。
 
-- `translationCache`
+主要键名：
 
-缓存项结构大概是：
+- `translationCacheMeta`
+- `translationCacheBucket:00` 到 `translationCacheBucket:63`
+- 旧版单对象键 `translationCache` 会在加载时自动迁移掉
+
+单个桶里的结构大概是：
 
 ```json
 {
-  "translationCache": {
+  "translationCacheBucket:17": {
     "zh-CN::hello": {
       "translation": "你好",
       "updatedAt": 1770000000000
@@ -90,20 +94,21 @@
 1. 打开扩展的 DevTools
 2. 进入 **Application**
 3. 找到 **Extension storage** → **Local**
-4. 查看 `translationCache`
+4. 查看 `translationCacheMeta` 和 `translationCacheBucket:*`
 
 或者在 Console 里执行：
 
 ```js
-chrome.storage.local.get('translationCache').then(console.log)
+chrome.storage.local.get().then(console.log)
 ```
 
 ## 项目结构
 
 - `manifest.json` — Chrome MV3 清单
-- `src/content.js` — 内容脚本：扫描消息、翻译、缓存、渲染译文
+- `src/content.js` — 内容脚本：扫描消息、翻译、分片缓存、渲染译文
 - `src/common.js` — 文本清洗与通用工具
-- `src/cache.js` — 缓存工具函数（保留作测试/结构复用）
+- `src/cache.js` — 缓存工具函数（Node 测试用模块）
+- `src/cache-runtime.js` — 浏览器侧分片缓存运行时
 - `tests/` — Node 内置测试
 
 ## 开发
@@ -125,7 +130,6 @@ node --test
 
 - 依赖 Discord 当前 DOM 结构。Discord 改版后，可能需要调整选择器。
 - 使用的是 Google 非官方公开接口，稳定性看 Google 脸色，不保证永久可用。
-- 当前默认目标语言固定为简体中文，还没有做设置页。
 - 复杂富文本、超长嵌套内容的结构保留仍然不是百分百完美，但已经比简单整段翻译稳得多。
 
 ## 后续可做

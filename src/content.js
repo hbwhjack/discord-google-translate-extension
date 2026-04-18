@@ -24,9 +24,9 @@ const MESSAGE_SELECTOR = '[id^="message-content-"]';
 const TRANSLATION_CLASS = 'jb-discord-translation';
 const HANDLED_ATTR = 'data-jb-translation-bound';
 const ORIGINAL_ATTR = 'data-jb-translation-source';
-const STORAGE_CACHE_KEY = 'translationCache';
 const SETTINGS_KEY = 'settings';
-const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const cacheApi = globalThis.JBDiscordTranslateCache;
+const LEGACY_STORAGE_CACHE_KEY = cacheApi.LEGACY_STORAGE_CACHE_KEY;
 const DEFAULT_SETTINGS = {
   targetLanguage: DEFAULT_TARGET_LANG,
   translateDirectMessages: false,
@@ -150,37 +150,11 @@ function injectStyles() {
 }
 
 function buildCacheKey(text, targetLang = DEFAULT_TARGET_LANG) {
-  return `${targetLang}::${text}`;
+  return cacheApi.buildCacheKey(text, targetLang);
 }
 
 function isCacheEntryFresh(entry, now = Date.now()) {
-  return Boolean(
-    entry
-      && typeof entry.translation === 'string'
-      && typeof entry.updatedAt === 'number'
-      && now - entry.updatedAt <= CACHE_TTL_MS,
-  );
-}
-
-function pruneExpiredEntries(entries = {}, now = Date.now()) {
-  return Object.fromEntries(
-    Object.entries(entries).filter(([, entry]) => isCacheEntryFresh(entry, now)),
-  );
-}
-
-function mergeCacheEntries(existingEntries = {}, incomingEntries = {}, now = Date.now()) {
-  const merged = {
-    ...pruneExpiredEntries(existingEntries, now),
-  };
-
-  for (const [key, entry] of Object.entries(pruneExpiredEntries(incomingEntries, now))) {
-    const existing = merged[key];
-    if (!existing || entry.updatedAt >= existing.updatedAt) {
-      merged[key] = entry;
-    }
-  }
-
-  return merged;
+  return cacheApi.isCacheEntryFresh(entry, now);
 }
 
 function getStorageArea() {
@@ -198,15 +172,11 @@ async function loadPersistentCache() {
     return;
   }
 
-  const stored = await storage.get(STORAGE_CACHE_KEY);
-  const prunedEntries = pruneExpiredEntries(stored?.[STORAGE_CACHE_KEY]);
-
+  const entries = await cacheApi.loadShardedCacheFromStorage(storage);
   translationCache.clear();
-  for (const [key, entry] of Object.entries(prunedEntries)) {
+  for (const [key, entry] of Object.entries(entries)) {
     translationCache.set(key, entry);
   }
-
-  await storage.set({ [STORAGE_CACHE_KEY]: prunedEntries });
 }
 
 async function loadSettings() {
@@ -221,24 +191,13 @@ async function loadSettings() {
   return settings;
 }
 
-async function persistCache() {
+async function persistCacheEntry(cacheKey, entry) {
   const storage = getStorageArea();
   if (!storage) {
     return;
   }
 
-  const stored = await storage.get(STORAGE_CACHE_KEY);
-  const mergedEntries = mergeCacheEntries(
-    stored?.[STORAGE_CACHE_KEY],
-    Object.fromEntries(translationCache.entries()),
-  );
-
-  translationCache.clear();
-  for (const [key, entry] of Object.entries(mergedEntries)) {
-    translationCache.set(key, entry);
-  }
-
-  await storage.set({ [STORAGE_CACHE_KEY]: mergedEntries });
+  await cacheApi.upsertCacheEntryInStorage(storage, cacheKey, entry);
 }
 
 function splitForGoogleTranslate(text, maxLength = 1800) {
@@ -408,11 +367,12 @@ async function requestTranslation(text, targetLanguage) {
     return '';
   }
 
-  translationCache.set(cacheKey, {
+  const entry = {
     translation,
     updatedAt: Date.now(),
-  });
-  await persistCache();
+  };
+  translationCache.set(cacheKey, entry);
+  await persistCacheEntry(cacheKey, entry);
   return translation;
 }
 
@@ -540,7 +500,13 @@ chrome.storage.onChanged?.addListener((changes, areaName) => {
     scheduleProcess();
   }
 
-  if (changes[STORAGE_CACHE_KEY]) {
+  const cacheKeysChanged = Object.keys(changes).some((key) => (
+    key === cacheApi.CACHE_META_KEY
+    || key === LEGACY_STORAGE_CACHE_KEY
+    || key.startsWith(cacheApi.CACHE_BUCKET_PREFIX)
+  ));
+
+  if (cacheKeysChanged) {
     translationCache.clear();
     cacheLoaded = false;
   }

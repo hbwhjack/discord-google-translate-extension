@@ -7,10 +7,9 @@ import {
 } from './common.js';
 import {
   buildCacheKey,
-  CACHE_TTL_MS,
   isCacheEntryFresh,
   pruneExpiredEntries,
-  STORAGE_CACHE_KEY,
+  LEGACY_STORAGE_CACHE_KEY,
 } from './cache.js';
 
 const LOG_PREFIX = '[JB Discord Translate]';
@@ -32,15 +31,15 @@ async function loadPersistentCache() {
     return;
   }
 
-  const stored = await storage.get(STORAGE_CACHE_KEY);
-  const prunedEntries = pruneExpiredEntries(stored?.[STORAGE_CACHE_KEY]);
+  const stored = await storage.get(LEGACY_STORAGE_CACHE_KEY);
+  const prunedEntries = pruneExpiredEntries(stored?.[LEGACY_STORAGE_CACHE_KEY]);
 
   cache.clear();
   for (const [key, entry] of Object.entries(prunedEntries)) {
     cache.set(key, entry);
   }
 
-  await storage.set({ [STORAGE_CACHE_KEY]: prunedEntries });
+  await storage.set({ [LEGACY_STORAGE_CACHE_KEY]: prunedEntries });
 }
 
 async function persistCache() {
@@ -57,7 +56,7 @@ async function persistCache() {
     cache.set(key, entry);
   }
 
-  await storage.set({ [STORAGE_CACHE_KEY]: prunedEntries });
+  await storage.set({ [LEGACY_STORAGE_CACHE_KEY]: prunedEntries });
 }
 
 async function translateSegment(text, targetLang) {

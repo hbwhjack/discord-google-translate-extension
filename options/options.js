@@ -1,5 +1,5 @@
 const SETTINGS_KEY = 'settings';
-const STORAGE_CACHE_KEY = 'translationCache';
+const cacheApi = globalThis.JBDiscordTranslateCache;
 const DEFAULT_SETTINGS = {
   targetLanguage: 'zh-CN',
   translateDirectMessages: false,
@@ -88,17 +88,17 @@ async function saveSettings() {
 }
 
 async function clearCache() {
-  await chrome.storage.local.remove(STORAGE_CACHE_KEY);
+  await cacheApi.clearShardedCacheInStorage(chrome.storage.local);
   setStatus('Translation cache cleared.');
 }
 
 async function exportSettings() {
-  const stored = await chrome.storage.local.get([SETTINGS_KEY, STORAGE_CACHE_KEY]);
+  const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const payload = {
     settings: normalizeSettings(stored?.[SETTINGS_KEY]),
-    translationCache: normalizeCache(stored?.[STORAGE_CACHE_KEY]),
+    translationCache: normalizeCache(await cacheApi.exportCacheFromStorage(chrome.storage.local)),
     exportedAt: new Date().toISOString(),
-    schemaVersion: 1,
+    schemaVersion: cacheApi.STORAGE_SCHEMA_VERSION,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -115,10 +115,8 @@ async function importSettings(file) {
   const parsed = JSON.parse(text);
   const settings = normalizeSettings(parsed?.settings);
   const translationCache = normalizeCache(parsed?.translationCache);
-  await chrome.storage.local.set({
-    [SETTINGS_KEY]: settings,
-    [STORAGE_CACHE_KEY]: translationCache,
-  });
+  await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+  await cacheApi.importCacheToStorage(chrome.storage.local, translationCache);
   applySettings(settings);
   importFileInput.value = '';
   setStatus('Settings and cache imported.');

@@ -12,7 +12,7 @@
   "content_scripts": [
     {
       "matches": ["https://discord.com/*"],
-      "js": ["src/content.js"],
+      "js": ["src/cache-runtime.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ],

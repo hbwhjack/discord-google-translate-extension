@@ -2,8 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CACHE_BUCKET_COUNT,
+  CACHE_META_KEY,
   CACHE_TTL_MS,
+  LEGACY_STORAGE_CACHE_KEY,
+  STORAGE_SCHEMA_VERSION,
   buildCacheKey,
+  distributeEntriesAcrossBuckets,
+  flattenBuckets,
+  getAllBucketStorageKeys,
+  getBucketStorageKey,
+  getBucketStorageKeyForCacheKey,
   isCacheEntryFresh,
   mergeCacheEntries,
   pruneExpiredEntries,
@@ -52,5 +61,35 @@ test('mergeCacheEntries preserves previously stored translations while adding ne
   assert.deepEqual(mergeCacheEntries(existing, incoming, now), {
     'zh-CN::one': { translation: '一', updatedAt: now - 5000 },
     'zh-CN::two': { translation: '二', updatedAt: now - 1000 },
+  });
+});
+
+test('sharded cache metadata and storage keys are stable', () => {
+  assert.equal(CACHE_BUCKET_COUNT, 64);
+  assert.equal(STORAGE_SCHEMA_VERSION, 2);
+  assert.equal(CACHE_META_KEY, 'translationCacheMeta');
+  assert.equal(LEGACY_STORAGE_CACHE_KEY, 'translationCache');
+  assert.equal(getBucketStorageKey(0), 'translationCacheBucket:00');
+  assert.equal(getBucketStorageKey(63), 'translationCacheBucket:63');
+  assert.equal(getAllBucketStorageKeys().length, CACHE_BUCKET_COUNT);
+  assert.equal(getBucketStorageKeyForCacheKey(buildCacheKey('hello', 'zh-CN')).startsWith('translationCacheBucket:'), true);
+});
+
+test('distributeEntriesAcrossBuckets and flattenBuckets round-trip valid entries', () => {
+  const now = Date.UTC(2026, 0, 31);
+  const entries = {
+    'zh-CN::one': { translation: '一', updatedAt: now - 3000 },
+    'zh-CN::two': { translation: '二', updatedAt: now - 2000 },
+    'ja::three': { translation: '三', updatedAt: now - 1000 },
+    'zh-CN::expired': { translation: '旧', updatedAt: now - CACHE_TTL_MS - 1 },
+  };
+
+  const buckets = distributeEntriesAcrossBuckets(entries, now);
+  const flattened = flattenBuckets(buckets, now);
+
+  assert.deepEqual(flattened, {
+    'zh-CN::one': { translation: '一', updatedAt: now - 3000 },
+    'zh-CN::two': { translation: '二', updatedAt: now - 2000 },
+    'ja::three': { translation: '三', updatedAt: now - 1000 },
   });
 });

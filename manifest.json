@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Discord Google Translate Overlay",
+  "version": "0.1.0",
+  "description": "Automatically translates Discord Web messages with Google Translate and shows yellow translated text below the original.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://discord.com/*",
+    "https://translate.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://discord.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Discord Google Translate Overlay"
+  }
+}

@@ -30,6 +30,10 @@ const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = {
   targetLanguage: DEFAULT_TARGET_LANG,
   translateDirectMessages: false,
+  serverFilterMode: 'off',
+  serverFilterList: '',
+  channelFilterMode: 'off',
+  channelFilterList: '',
 };
 const BLOCK_TAGS = new Set(['DIV', 'P', 'BLOCKQUOTE', 'PRE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 const translationCache = new Map();
@@ -49,13 +53,79 @@ function isGuildChannelRoute(pathname = window.location.pathname, translateDirec
   return parts.length >= 3;
 }
 
+function normalizeFilterMode(value, fallback = 'off') {
+  return ['off', 'whitelist', 'blacklist'].includes(value) ? value : fallback;
+}
+
+function normalizeIdList(value = '') {
+  return String(value)
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
 function normalizeSettings(raw = {}) {
   return {
     targetLanguage: typeof raw.targetLanguage === 'string' && raw.targetLanguage.trim()
       ? raw.targetLanguage.trim()
       : DEFAULT_SETTINGS.targetLanguage,
     translateDirectMessages: Boolean(raw.translateDirectMessages),
+    serverFilterMode: normalizeFilterMode(raw.serverFilterMode, DEFAULT_SETTINGS.serverFilterMode),
+    serverFilterList: normalizeIdList(raw.serverFilterList),
+    channelFilterMode: normalizeFilterMode(raw.channelFilterMode, DEFAULT_SETTINGS.channelFilterMode),
+    channelFilterList: normalizeIdList(raw.channelFilterList),
   };
+}
+
+function parseIdList(value = '') {
+  return new Set(
+    String(value)
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+function matchesFilterMode(id, mode, listValue) {
+  if (!id || mode === 'off') {
+    return true;
+  }
+
+  const idSet = parseIdList(listValue);
+  if (idSet.size === 0) {
+    return mode !== 'whitelist';
+  }
+
+  const included = idSet.has(id);
+  return mode === 'whitelist' ? included : !included;
+}
+
+function getRouteContext(pathname = window.location.pathname) {
+  const parts = pathname.split('/').filter(Boolean);
+  return {
+    guildId: parts[1] || null,
+    channelId: parts[2] || null,
+  };
+}
+
+function shouldTranslateCurrentRoute(settings, pathname = window.location.pathname) {
+  if (!isGuildChannelRoute(pathname, settings.translateDirectMessages)) {
+    return false;
+  }
+
+  const { guildId, channelId } = getRouteContext(pathname);
+  const isDirectMessage = guildId === '@me';
+
+  if (!isDirectMessage && !matchesFilterMode(guildId, settings.serverFilterMode, settings.serverFilterList)) {
+    return false;
+  }
+
+  if (!matchesFilterMode(channelId, settings.channelFilterMode, settings.channelFilterList)) {
+    return false;
+  }
+
+  return true;
 }
 
 function injectStyles() {
@@ -404,7 +474,7 @@ async function processAllMessages() {
 
   const settings = await loadSettings();
 
-  if (!isGuildChannelRoute(window.location.pathname, settings.translateDirectMessages)) {
+  if (!shouldTranslateCurrentRoute(settings, window.location.pathname)) {
     document.querySelectorAll(`.${TRANSLATION_CLASS}`).forEach((node) => node.remove());
     return;
   }

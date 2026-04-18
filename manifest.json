@@ -17,6 +17,7 @@
     }
   ],
   "action": {
-    "default_title": "Discord Google Translate Overlay"
+    "default_title": "Discord Google Translate Overlay",
+    "default_popup": "popup/popup.html"
   }
 }

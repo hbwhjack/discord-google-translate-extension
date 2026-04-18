@@ -5,6 +5,7 @@ import {
   CACHE_TTL_MS,
   buildCacheKey,
   isCacheEntryFresh,
+  mergeCacheEntries,
   pruneExpiredEntries,
 } from '../src/cache.js';
 
@@ -36,5 +37,20 @@ test('pruneExpiredEntries removes expired cache items only', () => {
 
   assert.deepEqual(pruneExpiredEntries(entries, now), {
     'zh-CN::fresh': { translation: '新的', updatedAt: now - 1000 },
+  });
+});
+
+test('mergeCacheEntries preserves previously stored translations while adding new ones', () => {
+  const now = Date.UTC(2026, 0, 31);
+  const existing = {
+    'zh-CN::one': { translation: '一', updatedAt: now - 5000 },
+  };
+  const incoming = {
+    'zh-CN::two': { translation: '二', updatedAt: now - 1000 },
+  };
+
+  assert.deepEqual(mergeCacheEntries(existing, incoming, now), {
+    'zh-CN::one': { translation: '一', updatedAt: now - 5000 },
+    'zh-CN::two': { translation: '二', updatedAt: now - 1000 },
   });
 });

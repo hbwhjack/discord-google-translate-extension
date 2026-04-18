@@ -19,3 +19,18 @@ export function pruneExpiredEntries(entries = {}, now = Date.now()) {
     Object.entries(entries).filter(([, entry]) => isCacheEntryFresh(entry, now)),
   );
 }
+
+export function mergeCacheEntries(existingEntries = {}, incomingEntries = {}, now = Date.now()) {
+  const merged = {
+    ...pruneExpiredEntries(existingEntries, now),
+  };
+
+  for (const [key, entry] of Object.entries(pruneExpiredEntries(incomingEntries, now))) {
+    const existing = merged[key];
+    if (!existing || entry.updatedAt >= existing.updatedAt) {
+      merged[key] = entry;
+    }
+  }
+
+  return merged;
+}

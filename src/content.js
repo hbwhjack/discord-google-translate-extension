@@ -168,6 +168,21 @@ function pruneExpiredEntries(entries = {}, now = Date.now()) {
   );
 }
 
+function mergeCacheEntries(existingEntries = {}, incomingEntries = {}, now = Date.now()) {
+  const merged = {
+    ...pruneExpiredEntries(existingEntries, now),
+  };
+
+  for (const [key, entry] of Object.entries(pruneExpiredEntries(incomingEntries, now))) {
+    const existing = merged[key];
+    if (!existing || entry.updatedAt >= existing.updatedAt) {
+      merged[key] = entry;
+    }
+  }
+
+  return merged;
+}
+
 function getStorageArea() {
   return chrome?.storage?.local ?? null;
 }
@@ -212,15 +227,18 @@ async function persistCache() {
     return;
   }
 
-  const entries = Object.fromEntries(translationCache.entries());
-  const prunedEntries = pruneExpiredEntries(entries);
+  const stored = await storage.get(STORAGE_CACHE_KEY);
+  const mergedEntries = mergeCacheEntries(
+    stored?.[STORAGE_CACHE_KEY],
+    Object.fromEntries(translationCache.entries()),
+  );
 
   translationCache.clear();
-  for (const [key, entry] of Object.entries(prunedEntries)) {
+  for (const [key, entry] of Object.entries(mergedEntries)) {
     translationCache.set(key, entry);
   }
 
-  await storage.set({ [STORAGE_CACHE_KEY]: prunedEntries });
+  await storage.set({ [STORAGE_CACHE_KEY]: mergedEntries });
 }
 
 function splitForGoogleTranslate(text, maxLength = 1800) {

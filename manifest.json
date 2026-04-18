@@ -8,10 +8,7 @@
     "https://discord.com/*",
     "https://translate.googleapis.com/*"
   ],
-  "background": {
-    "service_worker": "src/background.js",
-    "type": "module"
-  },
+  "options_page": "options/options.html",
   "content_scripts": [
     {
       "matches": ["https://discord.com/*"],

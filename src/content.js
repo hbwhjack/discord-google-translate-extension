@@ -25,23 +25,37 @@ const TRANSLATION_CLASS = 'jb-discord-translation';
 const HANDLED_ATTR = 'data-jb-translation-bound';
 const ORIGINAL_ATTR = 'data-jb-translation-source';
 const STORAGE_CACHE_KEY = 'translationCache';
+const SETTINGS_KEY = 'settings';
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const DEFAULT_SETTINGS = {
+  targetLanguage: DEFAULT_TARGET_LANG,
+  translateDirectMessages: false,
+};
 const BLOCK_TAGS = new Set(['DIV', 'P', 'BLOCKQUOTE', 'PRE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 const translationCache = new Map();
 let cacheLoaded = false;
 let processTimer = null;
 
-function isGuildChannelRoute(pathname = window.location.pathname) {
+function isGuildChannelRoute(pathname = window.location.pathname, translateDirectMessages = false) {
   if (!pathname.startsWith('/channels/')) {
     return false;
   }
 
-  if (pathname.startsWith('/channels/@me/')) {
+  if (!translateDirectMessages && pathname.startsWith('/channels/@me/')) {
     return false;
   }
 
   const parts = pathname.split('/').filter(Boolean);
   return parts.length >= 3;
+}
+
+function normalizeSettings(raw = {}) {
+  return {
+    targetLanguage: typeof raw.targetLanguage === 'string' && raw.targetLanguage.trim()
+      ? raw.targetLanguage.trim()
+      : DEFAULT_SETTINGS.targetLanguage,
+    translateDirectMessages: Boolean(raw.translateDirectMessages),
+  };
 }
 
 function injectStyles() {
@@ -108,6 +122,18 @@ async function loadPersistentCache() {
   }
 
   await storage.set({ [STORAGE_CACHE_KEY]: prunedEntries });
+}
+
+async function loadSettings() {
+  const storage = getStorageArea();
+  if (!storage) {
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  const stored = await storage.get(SETTINGS_KEY);
+  const settings = normalizeSettings(stored?.[SETTINGS_KEY]);
+  await storage.set({ [SETTINGS_KEY]: settings });
+  return settings;
 }
 
 async function persistCache() {
@@ -258,10 +284,10 @@ function shouldSkipElement(element) {
   return false;
 }
 
-async function requestTranslation(text) {
+async function requestTranslation(text, targetLanguage) {
   await loadPersistentCache();
 
-  const cacheKey = buildCacheKey(text, DEFAULT_TARGET_LANG);
+  const cacheKey = buildCacheKey(text, targetLanguage);
   const cachedEntry = translationCache.get(cacheKey);
   if (isCacheEntryFresh(cachedEntry)) {
     return cachedEntry.translation;
@@ -275,7 +301,7 @@ async function requestTranslation(text) {
   const translatedParts = [];
 
   for (const part of parts) {
-    const response = await fetch(buildGoogleTranslateUrl(part, DEFAULT_TARGET_LANG), {
+    const response = await fetch(buildGoogleTranslateUrl(part, targetLanguage), {
       method: 'GET',
       credentials: 'omit',
     });
@@ -302,7 +328,7 @@ async function requestTranslation(text) {
   return translation;
 }
 
-async function requestTranslations(textBlocks) {
+async function requestTranslations(textBlocks, targetLanguage) {
   const translations = [];
 
   for (const block of textBlocks) {
@@ -310,7 +336,7 @@ async function requestTranslations(textBlocks) {
       continue;
     }
 
-    const translated = await requestTranslation(block);
+    const translated = await requestTranslation(block, targetLanguage);
     if (!translated || translated === block) {
       continue;
     }
@@ -331,7 +357,7 @@ function renderTranslationNode(node, lines) {
   });
 }
 
-async function processElement(element) {
+async function processElement(element, settings) {
   if (shouldSkipElement(element)) {
     return;
   }
@@ -353,7 +379,10 @@ async function processElement(element) {
     return;
   }
 
-  const translations = await requestTranslations(sourceBlocks.length > 0 ? sourceBlocks : [sourceText]);
+  const translations = await requestTranslations(
+    sourceBlocks.length > 0 ? sourceBlocks : [sourceText],
+    settings.targetLanguage,
+  );
   if (translations.length === 0) {
     return;
   }
@@ -373,7 +402,9 @@ async function processElement(element) {
 async function processAllMessages() {
   injectStyles();
 
-  if (!isGuildChannelRoute()) {
+  const settings = await loadSettings();
+
+  if (!isGuildChannelRoute(window.location.pathname, settings.translateDirectMessages)) {
     document.querySelectorAll(`.${TRANSLATION_CLASS}`).forEach((node) => node.remove());
     return;
   }
@@ -389,7 +420,7 @@ async function processAllMessages() {
   });
 
   for (const element of elements) {
-    await processElement(element);
+    await processElement(element, settings);
   }
 }
 
@@ -411,6 +442,21 @@ function observeDom() {
     characterData: true,
   });
 }
+
+chrome.storage.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== 'local') {
+    return;
+  }
+
+  if (changes[SETTINGS_KEY]) {
+    scheduleProcess();
+  }
+
+  if (changes[STORAGE_CACHE_KEY]) {
+    translationCache.clear();
+    cacheLoaded = false;
+  }
+});
 
 scheduleProcess();
 console.info(`${LOG_PREFIX} content script active`);

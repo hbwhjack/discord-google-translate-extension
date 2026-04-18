@@ -37,6 +37,9 @@ const DEFAULT_SETTINGS = {
 };
 const BLOCK_TAGS = new Set(['DIV', 'P', 'BLOCKQUOTE', 'PRE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 const translationCache = new Map();
+const pendingTranslations = new Map();
+const failedTranslations = new Map();
+const FAILED_TRANSLATION_COOLDOWN_MS = 3000;
 let cacheLoaded = false;
 let processTimer = null;
 
@@ -337,6 +340,7 @@ async function requestTranslation(text, targetLanguage) {
   const cacheKey = buildCacheKey(text, targetLanguage);
   const cachedEntry = translationCache.get(cacheKey);
   if (isCacheEntryFresh(cachedEntry)) {
+    failedTranslations.delete(cacheKey);
     return cachedEntry.translation;
   }
 
@@ -344,36 +348,64 @@ async function requestTranslation(text, targetLanguage) {
     translationCache.delete(cacheKey);
   }
 
-  const parts = splitForGoogleTranslate(text);
-  const translatedParts = [];
-
-  for (const part of parts) {
-    const response = await fetch(buildGoogleTranslateUrl(part, targetLanguage), {
-      method: 'GET',
-      credentials: 'omit',
-    });
-
-    if (!response.ok) {
-      console.info(`${LOG_PREFIX} translation request failed`, response.status);
-      return '';
-    }
-
-    const payload = await response.json();
-    translatedParts.push(normalizeGoogleTranslateResponse(payload));
-  }
-
-  const translation = normalizeWhitespace(translatedParts.join(' '));
-  if (!translation) {
+  const now = Date.now();
+  const failedAt = failedTranslations.get(cacheKey);
+  if (typeof failedAt === 'number' && now - failedAt < FAILED_TRANSLATION_COOLDOWN_MS) {
     return '';
   }
 
-  const entry = {
-    translation,
-    updatedAt: Date.now(),
-  };
-  translationCache.set(cacheKey, entry);
-  await persistCacheEntry(cacheKey, entry);
-  return translation;
+  if (typeof failedAt === 'number' && now - failedAt >= FAILED_TRANSLATION_COOLDOWN_MS) {
+    failedTranslations.delete(cacheKey);
+  }
+
+  const pendingTranslation = pendingTranslations.get(cacheKey);
+  if (pendingTranslation) {
+    return pendingTranslation;
+  }
+
+  const translationPromise = (async () => {
+    const parts = splitForGoogleTranslate(text);
+    const translatedParts = [];
+
+    for (const part of parts) {
+      const response = await fetch(buildGoogleTranslateUrl(part, targetLanguage), {
+        method: 'GET',
+        credentials: 'omit',
+      });
+
+      if (!response.ok) {
+        failedTranslations.set(cacheKey, now);
+        console.info(`${LOG_PREFIX} translation request failed`, response.status);
+        return '';
+      }
+
+      const payload = await response.json();
+      translatedParts.push(normalizeGoogleTranslateResponse(payload));
+    }
+
+    const translation = normalizeWhitespace(translatedParts.join(' '));
+    if (!translation) {
+      failedTranslations.set(cacheKey, now);
+      return '';
+    }
+
+    const entry = {
+      translation,
+      updatedAt: Date.now(),
+    };
+    translationCache.set(cacheKey, entry);
+    failedTranslations.delete(cacheKey);
+    await persistCacheEntry(cacheKey, entry);
+    return translation;
+  })();
+
+  pendingTranslations.set(cacheKey, translationPromise);
+
+  try {
+    return await translationPromise;
+  } finally {
+    pendingTranslations.delete(cacheKey);
+  }
 }
 
 async function requestTranslations(textBlocks, targetLanguage) {

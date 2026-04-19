@@ -26,12 +26,12 @@
 
 ## 安装
 
-1. 打开 Chrome
-2. 进入 `chrome://extensions`
-3. 打开右上角 **开发者模式**
-4. 点击 **加载已解压的扩展程序**
-5. 选择这个项目目录：
-   - `/home/hbwhjack/.hermes/workspace/discord-google-translate-extension`
+1. 获取这个项目到本地（`git clone` 或直接下载 ZIP 后解压都可以）
+2. 打开 Chrome / Chromium 浏览器
+3. 进入 `chrome://extensions`
+4. 打开右上角 **开发者模式**
+5. 点击 **加载已解压的扩展程序**
+6. 选择这个项目在你电脑上的目录（也就是包含 `manifest.json` 的那个文件夹）
 
 ## 使用方法
 
